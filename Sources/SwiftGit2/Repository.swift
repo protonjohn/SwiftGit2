@@ -479,6 +479,9 @@ public final class Repository {
         return withGitObject(oid, type: GIT_OBJECT_TAG) { Tag($0) }
     }
 
+    /// Creates an annotated tag with the given name, target, signature, and message.
+    ///
+    /// Returns the tag if successful, or an error.
     public func createTag(_ name: String, target: ObjectType, signature: Signature, message: String) -> Result<Tag, NSError> {
         var buf = git_buf()
         git_message_prettify(&buf, message, 0, /* ascii for # */ 35)
@@ -1134,6 +1137,20 @@ public final class Repository {
         }
 
         return .success(returnArray)
+    }
+
+    // MARK: - Default signature
+
+    public func defaultSignature() -> Result<Signature, NSError> {
+        var signature: UnsafeMutablePointer<git_signature>?
+        let result = git_signature_default(&signature, pointer)
+
+        defer { signature?.deallocate() }
+
+        guard result == GIT_OK.rawValue, let signature else {
+            return .failure(NSError(gitError: result, pointOfFailure: "git_signature_default"))
+        }
+        return .success(Signature(signature.pointee))
     }
 
     // MARK: - Validity/Existence Check
