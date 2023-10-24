@@ -1,0 +1,5 @@
+module Clibssh2 [system] {
+  header "ssh2.h"
+  link "ssh2"
+  export *
+}

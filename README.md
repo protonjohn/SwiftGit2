@@ -1,7 +1,4 @@
 # SwiftGit2
-[![Build Status](https://travis-ci.org/SwiftGit2/SwiftGit2.svg)](https://travis-ci.org/SwiftGit2/SwiftGit2)
-[![Carthage compatible](https://img.shields.io/badge/Carthage-compatible-4BC51D.svg?style=flat)](#carthage)
-[![GitHub release](https://img.shields.io/github/release/SwiftGit2/SwiftGit2.svg)](https://github.com/SwiftGit2/SwiftGit2/releases)
 ![Swift 5.3.x](https://img.shields.io/badge/Swift-5.3.x-orange.svg)
 
 Swift bindings to [libgit2](https://github.com/libgit2/libgit2).
@@ -41,37 +38,8 @@ This vastly simplifies the design of long-lived applications, which are the most
 
 All methods for reading from or writing to a repository are on SwiftGit’s only `class`: `Repository`. This highlights the failability and mutation of these methods, while freeing up all other instances to be immutable `struct`s and `enum`s.
 
-## Required Tools
-To build SwiftGit2, you'll need the following tools installed locally:
-
-* cmake
-* libssh2
-* libtool
-* autoconf
-* automake
-* pkg-config
-
-```
-brew install cmake libssh2 libtool autoconf automake pkg-config
-```
-
 ## Adding SwiftGit2 to your Project
-The easiest way to add SwiftGit2 to your project is to use [Carthage](https://github.com/Carthage/Carthage). Simply add `github "SwiftGit2/SwiftGit2"` to your `Cartfile` and run `carthage update`.
-
-If you’d like, you can do things the ~~hard~~ old-fashioned way:
-
-1. Add SwiftGit2 as a submodule of your project’s repository.
-2. Run `git submodule update --init --recursive` to fetch all of SwiftGit2’s depedencies.
-3. Add `SwiftGit2.xcodeproj` to your project’s Xcode project or workspace.
-4. On the “Build Phases” tab of your application target, add `SwiftGit2.framework` to the “Link Binary With Libraries” phase. SwiftGit2 must also be added to a “Copy Frameworks” build phase.
-5. **If you added SwiftGit2 to a project (not a workspace)**, you will also need to add the appropriate SwiftGit2 target to the “Target Dependencies” of your application.
-
-## Building SwiftGit2 Manually
-If you want to build a copy of SwiftGit2 without Carthage, possibly for development:
-
-1. Clone SwiftGit2
-2. Run `git submodule update --init --recursive` to clone the submodules
-3. Build in Xcode
+This fork of SwiftGit2 depends on the system installation of libgit2 (and potentially other libraries in the future such as libssh and libgpg). It is thus only available for developer use on desktop devices equipped with a package manager, or some other means of installing the required libraries as system dependencies.
 
 ## Contributions
 We :heart: to receive pull requests! GitHub makes it easy:
