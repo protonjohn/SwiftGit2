@@ -304,6 +304,38 @@ public final class Repository {
 		return withGitObject(oid, type: GIT_OBJECT_TAG) { Tag($0) }
 	}
 
+    public func createTag(_ name: String, target: ObjectType, signature: Signature, message: String) -> Result<Tag, NSError> {
+        var buf = git_buf()
+        git_message_prettify(&buf, message, 0, /* ascii for # */ 35)
+        defer { git_buf_free(&buf) }
+
+        return signature.makeUnsafeSignature().flatMap { signature in
+            defer { signature.deallocate() }
+            return withGitObject(target.oid, type: type(of: target).type) { targetObject in
+                var oid = git_oid()
+
+                let result = git_tag_annotation_create(
+                    &oid,
+                    pointer,
+                    name,
+                    targetObject,
+                    signature,
+                    buf.ptr
+                )
+
+                guard result == GIT_OK.rawValue else {
+                    return .failure(NSError(gitError: result, pointOfFailure: "git_tag_annotation_create"))
+                }
+
+                return withGitObject(
+                    OID(rawValue: oid),
+                    type: GIT_OBJECT_TAG
+                ) { Tag($0) }
+            }
+        }
+
+    }
+
 	/// Loads the tree with the given OID.
 	///
 	/// oid - The OID of the tree to look up.
