@@ -40,7 +40,7 @@ let package = Package(
         ),
         .systemLibrary(
             name: "Clibssl",
-            pkgConfig: "openssl@3",
+            pkgConfig: "openssl",
             providers: [
                 .brewItem(["openssl"]),
                 .aptItem(["openssl-dev"])

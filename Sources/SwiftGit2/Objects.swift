@@ -9,9 +9,70 @@
 import Foundation
 import Clibgit2
 
+public enum GitObjectType: RawRepresentable {
+    public typealias RawValue = git_object_t
+
+    case any
+    case invalid
+    case commit
+    case tree
+    case blob
+    case tag
+    case offsetDelta
+    case referenceDelta
+
+    public var rawValue: git_object_t {
+        switch self {
+        case .any:
+            return GIT_OBJECT_ANY
+        case .invalid:
+            return GIT_OBJECT_INVALID
+        case .commit:
+            return GIT_OBJECT_COMMIT
+        case .tree:
+            return GIT_OBJECT_TREE
+        case .blob:
+            return GIT_OBJECT_BLOB
+        case .tag:
+            return GIT_OBJECT_TAG
+        case .offsetDelta:
+            return GIT_OBJECT_OFS_DELTA
+        case .referenceDelta:
+            return GIT_OBJECT_REF_DELTA
+        }
+    }
+
+    public init?(rawValue: git_object_t) {
+        switch rawValue {
+        case GIT_OBJECT_ANY:
+            self = .any
+        case GIT_OBJECT_INVALID:
+            self = .invalid
+        case GIT_OBJECT_COMMIT:
+            self = .commit
+        case GIT_OBJECT_TREE:
+            self = .tree
+        case GIT_OBJECT_BLOB:
+            self = .blob
+        case GIT_OBJECT_TAG:
+            self = .tag
+        case GIT_OBJECT_OFS_DELTA:
+            self = .offsetDelta
+        case GIT_OBJECT_REF_DELTA:
+            self = .referenceDelta
+        default:
+            return nil
+        }
+    }
+
+    public static func fromPointer(_ pointer: OpaquePointer) -> Self? {
+        Self(rawValue: git_object_type(pointer))
+    }
+}
+
 /// A git object.
 public protocol ObjectType {
-    static var type: git_object_t { get }
+    static var type: GitObjectType { get }
 
     /// The OID of the object.
     var oid: OID { get }
@@ -84,7 +145,7 @@ extension Signature: Hashable {
 
 /// A git commit.
 public struct Commit: ObjectType, Hashable {
-    public static let type = GIT_OBJECT_COMMIT
+    public static let type: GitObjectType = .commit
 
     /// The OID of the commit.
     public let oid: OID
@@ -152,7 +213,7 @@ public struct Commit: ObjectType, Hashable {
 
 /// A git tree.
 public struct Tree: ObjectType, Hashable {
-    public static let type = GIT_OBJECT_TREE
+    public static let type: GitObjectType = .tree
 
     /// An entry in a `Tree`.
     public struct Entry: Hashable {
@@ -208,7 +269,7 @@ extension Tree.Entry: CustomStringConvertible {
 
 /// A git blob.
 public struct Blob: ObjectType, Hashable {
-    public static let type = GIT_OBJECT_BLOB
+    public static let type: GitObjectType = .blob
 
     /// The OID of the blob.
     public let oid: OID
@@ -227,7 +288,7 @@ public struct Blob: ObjectType, Hashable {
 
 /// An annotated git tag.
 public struct Tag: ObjectType, Hashable {
-    public static let type = GIT_OBJECT_TAG
+    public static let type: GitObjectType = .tag
 
     /// The OID of the tag.
     public let oid: OID
