@@ -1,2 +1,2 @@
 #pragma once
-#include <ssh2.h>
+#include <libssh2.h>

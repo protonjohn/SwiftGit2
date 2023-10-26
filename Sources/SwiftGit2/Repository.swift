@@ -36,10 +36,8 @@ private func checkoutProgressCallback(path: UnsafePointer<Int8>?, completedSteps
 private func checkoutOptions(strategy: CheckoutStrategy,
                              progress: CheckoutProgressBlock? = nil) -> git_checkout_options {
     // Do this because GIT_CHECKOUT_OPTIONS_INIT is unavailable in swift
-    let pointer = UnsafeMutablePointer<git_checkout_options>.allocate(capacity: 1)
-    git_checkout_init_options(pointer, UInt32(GIT_CHECKOUT_OPTIONS_VERSION))
-    var options = pointer.move()
-    pointer.deallocate()
+    var options = git_checkout_options()
+    git_checkout_init_options(&options, UInt32(GIT_CHECKOUT_OPTIONS_VERSION))
 
     options.checkout_strategy = strategy.gitCheckoutStrategy.rawValue
 
@@ -54,12 +52,8 @@ private func checkoutOptions(strategy: CheckoutStrategy,
 }
 
 private func fetchOptions(credentials: Credentials) -> git_fetch_options {
-    let pointer = UnsafeMutablePointer<git_fetch_options>.allocate(capacity: 1)
-    git_fetch_init_options(pointer, UInt32(GIT_FETCH_OPTIONS_VERSION))
-
-    var options = pointer.move()
-
-    pointer.deallocate()
+    var options = git_fetch_options()
+    git_fetch_init_options(&options, UInt32(GIT_FETCH_OPTIONS_VERSION))
 
     options.callbacks.payload = credentials.toPointer()
     options.callbacks.credentials = credentialsCallback
@@ -67,13 +61,14 @@ private func fetchOptions(credentials: Credentials) -> git_fetch_options {
     return options
 }
 
-private func cloneOptions(bare: Bool = false, localClone: Bool = false, fetchOptions: git_fetch_options? = nil,
-                          checkoutOptions: git_checkout_options? = nil) -> git_clone_options {
-    let pointer = UnsafeMutablePointer<git_clone_options>.allocate(capacity: 1)
-    git_clone_init_options(pointer, UInt32(GIT_CLONE_OPTIONS_VERSION))
-
-    var options = pointer.move()
-    pointer.deallocate()
+private func cloneOptions(
+    bare: Bool = false,
+    localClone: Bool = false,
+    fetchOptions: git_fetch_options? = nil,
+    checkoutOptions: git_checkout_options? = nil
+) -> git_clone_options {
+    var options = git_clone_options()
+    git_clone_init_options(&options, UInt32(GIT_CLONE_OPTIONS_VERSION))
 
     options.bare = bare ? 1 : 0
 
@@ -92,179 +87,38 @@ private func cloneOptions(bare: Bool = false, localClone: Bool = false, fetchOpt
     return options
 }
 
-private func pushOptions(credentials: Credentials = .default,
-                          checkoutOptions: git_checkout_options? = nil) -> git_push_options {
-    let pointer = UnsafeMutablePointer<git_push_options>.allocate(capacity: 1)
-    git_push_init_options(pointer, UInt32(GIT_PUSH_OPTIONS_VERSION))
-    
-    
+private func pushOptions(credentials: Credentials) -> git_push_options {
+    var options = git_push_options()
+    git_push_init_options(&options, UInt32(GIT_PUSH_OPTIONS_VERSION))
 
-    var options = pointer.move()
-    pointer.deallocate()
-    
-    
     options.callbacks.payload = credentials.toPointer()
     options.callbacks.credentials = credentialsCallback
-//  func pushTransferProgressCallback(
-//      current: UInt32,
-//      total: UInt32,
-//      bytes: size_t,
-//      payload: UnsafeMutableRawPointer? ) -> Int32 {
-//      let result: Int32 = 1
-//      return result
-//  }
-//  options.callbacks.push_transfer_progress = pushTransferProgressCallback
-
     return options
 }
 
-//let strings: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?> = [master].withUnsafeBufferPointer {
-//  let buffer = UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>.allocate(capacity: $0.count + 1)
-//  let val = $0.map
-//  { $0.withCString(strdup) }
-//  buffer.initialize(from: val, count: 1)
-//  buffer[$0.count] = nil
-//return buffer
-//}
-
 /// A git repository.
 public final class Repository {
-    /// Only used for running `git_libgit2_init()` exactly once.
-    private static var gitInit: Void = { git_libgit2_init(); return }()
+    public func push(remote remoteName: String = "origin", credentials: Credentials = .sshAgent, reference: ReferenceType) -> Result<(), NSError> {
 
-    
-//    public func checkout(localBranch branch: Branch) -> Result<(), Error> {
-//        try checkout(branch, strategy: checkoutStrategy).get()
-//    }
-    
-    public func checkoutOrCreateBranch(
-        named branchName: String,
-        checkoutStrategy: CheckoutStrategy
-    ) -> Result<Branch, Error> {
-        do {
-            let repository: OpaquePointer = self.pointer
-            var remote: OpaquePointer? = nil
-            let result_git_remote_lookup = git_remote_lookup(&remote, repository, "origin")
-            if result_git_remote_lookup != 0 {
-                throw NSError(gitError: result_git_remote_lookup)
-            }
-            
-            /// git_object, does not exist
-            let branchResult = self.localBranches()
-            switch branchResult {
-            case .success(let branches):
-                for branch in branches {
-                    if branch.name == branchName {
-                        try checkout(branch, strategy: checkoutStrategy).get()
-                        return .success(branch)
-                    }
-                }
-                fatalError()
-//                if createBranchIfDoesntExist {
-//                    // create the branch....
-//                    var output: OpaquePointer? = nil
-//                    let currentCommit = try self.getCurrentCommit().get()
-//                    var copy = currentCommit.oid.rawValue
-//                    var pointerToCommitInLibGit2: OpaquePointer? = nil
-//                    let lookup_success = git_object_lookup(&pointerToCommitInLibGit2, repository, &copy, GIT_OBJECT_COMMIT)
-//                    if lookup_success == 0 {
-//                        // success
-//                        let create_branch_result = git_branch_create(&output, repository, branchName.stringToCString(), pointerToCommitInLibGit2, 1)
-//                        if create_branch_result != 0 {
-//                            throw NSError(gitError: create_branch_result)
-//                        } else {
-//                            let checkout_result = checkout(branch, strategy: .Force).get()
-//                            if checkout_result != 0 {
-//                                throw NSError(gitError: checkout_result)
-//                            } else {
-//                                fatalError()
-//                            }
-//                        }
-//                    } else {
-//                        throw NSError()
-//                    } else {
-//                        // there is not branch with this name, and the caller doesn't want to create it if it doesn't exist
-//                        throw NSError()
-//                    }fatalError()
-            case .failure(let error):
-                throw error
-            }
-        } catch {
-            return .failure(error)
-        }
-    }
-    
-    public func push(_ repo: Repository, _ username: String, _ password: String, _ branch: String? = nil){
-        // todo get this properly
-        
-        let credentials: Credentials = Credentials.plaintext(username: username, password: password)
         var options = pushOptions(credentials: credentials)
         
-        let repository: OpaquePointer = repo.pointer
         var remote: OpaquePointer? = nil
-        let result_git_remote_lookup = git_remote_lookup(&remote, repository, "origin" )
-        print(result_git_remote_lookup)
-        
-        /*
-        public func localBranches() -> Result<[Branch], NSError> {
-            return references(withPrefix: "refs/heads/")
-                .map { (refs: [ReferenceType]) in
-                    return refs.map { $0 as! Branch }
-                }
+        let remoteLookupResult = git_remote_lookup(&remote, pointer, remoteName)
+        guard remoteLookupResult == GIT_OK.rawValue else {
+            return .failure(NSError(gitError: remoteLookupResult, pointOfFailure: "git_remote_lookup"))
         }
-*/
-        var master: String = ""
-        if(branch == nil){
-            if case .success = reference(named: "refs/heads/main") {
-                master = "refs/heads/main"
-            } else {
-                let branchResult = repo.localBranches()
-                switch branchResult {
-                case .success(let branches):
-                    print("found repo to use: \(branches[0].longName)") //get the first one for now :)
-                    master = branches[0].longName
-                    break
-                case .failure:
-                    print("Failed to get any branches...")
-                    break
-                }
-            }
-        } else {
-            if case .success = reference(named: branch!) {
-                master = "\(branch!)"
-            } else {
-                // Branch not found.
-                var gitBranch: OpaquePointer?
 
-                git_branch_create(&gitBranch, repository, branch!, nil, 1);
-            
-                master = "\(branch!)"
-            }
-        }
-        
-        if(master == ""){
-            master = "refs/heads/main" // Prevents a crash below
-        }
-        
-        
-        
+        let refnames = [reference.longName]
+        var array = git_strarray(strings: refnames)
+        defer { git_strarray_free(&array) }
 
-        let strings: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?> = [master].withUnsafeBufferPointer {
-            let buffer = UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>.allocate(capacity: $0.count + 1)
-            let val = $0.map
-            { $0.withCString(strdup) }
-            buffer.initialize(from: val, count: 1)
-            buffer[$0.count] = nil
-        return buffer
+        let pushResult = git_remote_push(remote, &array, &options)
+        guard pushResult == GIT_OK.rawValue else {
+            return .failure(NSError(gitError: pushResult, pointOfFailure: "git_remote_push"))
         }
-        var gitstr = git_strarray()
-        gitstr.strings = strings
-        gitstr.count = 1
-        
-        
-        let push_result = git_remote_push(remote, &gitstr, &options)
-        print(push_result)
+
         git_remote_free(remote)
+        return .success(())
     }
 
     
@@ -276,7 +130,6 @@ public final class Repository {
     ///
     /// Returns a `Result` with a `Repository` or an error.
     public class func create(at url: URL) -> Result<Repository, NSError> {
-        _ = Self.gitInit
         var pointer: OpaquePointer? = nil
         let result = url.withUnsafeFileSystemRepresentation {
             git_repository_init(&pointer, $0, 0)
@@ -296,7 +149,6 @@ public final class Repository {
     ///
     /// Returns a `Result` with a `Repository` or an error.
     public class func at(_ url: URL) -> Result<Repository, NSError> {
-        _ = Self.gitInit
         var pointer: OpaquePointer? = nil
         let result = url.withUnsafeFileSystemRepresentation {
             git_repository_open(&pointer, $0)
@@ -324,7 +176,6 @@ public final class Repository {
     public class func clone(from remoteURL: URL, to localURL: URL, localClone: Bool = false, bare: Bool = false,
                             credentials: Credentials = .default, checkoutStrategy: CheckoutStrategy = .Safe,
                             checkoutProgress: CheckoutProgressBlock? = nil) -> Result<Repository, NSError> {
-        _ = Self.gitInit
         var options = cloneOptions(
             bare: bare,
             localClone: localClone,
@@ -492,15 +343,15 @@ public final class Repository {
             return withGitObject(target.oid, type: type(of: target).type) { targetObject in
                 var oid = git_oid()
 
-                let result = git_tag_annotation_create(
+                let result = git_tag_create(
                     &oid,
                     pointer,
                     name,
                     targetObject,
                     signature,
-                    buf.ptr
+                    buf.ptr,
+                    /* force */ 0
                 )
-
                 guard result == GIT_OK.rawValue else {
                     return .failure(NSError(gitError: result, pointOfFailure: "git_tag_annotation_create"))
                 }
@@ -556,20 +407,17 @@ public final class Repository {
     ///
     /// Returns an array of remotes, or an error.
     public func allRemotes() -> Result<[Remote], NSError> {
-        let pointer = UnsafeMutablePointer<git_strarray>.allocate(capacity: 1)
-        let result = git_remote_list(pointer, self.pointer)
+        var array = git_strarray()
+        let result = git_remote_list(&array, self.pointer)
 
         guard result == GIT_OK.rawValue else {
-            pointer.deallocate()
             return Result.failure(NSError(gitError: result, pointOfFailure: "git_remote_list"))
         }
 
-        let strarray = pointer.pointee
-        let remotes: [Result<Remote, NSError>] = strarray.map {
+        let remotes: [Result<Remote, NSError>] = array.map {
             return self.remote(named: $0)
         }
-        git_strarray_free(pointer)
-        pointer.deallocate()
+        git_strarray_free(&array)
 
         return remotes.aggregateResult()
     }
@@ -618,24 +466,21 @@ public final class Repository {
 
     /// Load all the references with the given prefix (e.g. "refs/heads/")
     public func references(withPrefix prefix: String) -> Result<[ReferenceType], NSError> {
-        let pointer = UnsafeMutablePointer<git_strarray>.allocate(capacity: 1)
-        let result = git_reference_list(pointer, self.pointer)
+        var array = git_strarray()
+        let result = git_reference_list(&array, self.pointer)
 
         guard result == GIT_OK.rawValue else {
-            pointer.deallocate()
             return Result.failure(NSError(gitError: result, pointOfFailure: "git_reference_list"))
         }
 
-        let strarray = pointer.pointee
-        let references = strarray
+        let references = array
             .filter {
                 $0.hasPrefix(prefix)
             }
             .map {
                 self.reference(named: $0)
             }
-        git_strarray_free(pointer)
-        pointer.deallocate()
+        git_strarray_free(&array)
 
         return references.aggregateResult()
     }
@@ -805,10 +650,9 @@ public final class Repository {
 
     /// Stage the file(s) under the specified path.
     public func add(path: String) -> Result<(), NSError> {
-        var dirPointer = UnsafeMutablePointer<Int8>(mutating: (path as NSString).utf8String)
-        var paths = withUnsafeMutablePointer(to: &dirPointer) {
-            git_strarray(strings: $0, count: 1)
-        }
+        var paths = git_strarray(strings: [path])
+        defer { git_strarray_free(&paths) }
+
         return unsafeIndex().flatMap { index in
             defer { git_index_free(index) }
             let addResult = git_index_add_all(index, &paths, 0, nil, nil)

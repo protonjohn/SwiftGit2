@@ -17,13 +17,16 @@ private class Wrapper<T> {
 }
 
 public enum Credentials {
+    /// Note: `default` here refers to a default credential used for Kerberos or NTLM. Make sure the library is linked.
     case `default`
     case sshAgent
     case plaintext(username: String, password: String)
-    case sshMemory(username: String, privateKey: String, passphrase: String)
+    case sshMemory(privateKey: String, passphrase: String)
+    case sshPath(publicKeyPath: String, privateKeyPath: String, passphrase: String)
 
     private static var previouslyUsedPointer: String? = nil
     private static var previouslyUsedCredentials: Credentials? = nil
+
     internal static func fromPointer(_ pointer: UnsafeMutableRawPointer) -> Credentials {
         // check if we had just seen this pointer
         if pointer.debugDescription == previouslyUsedPointer {
@@ -60,20 +63,19 @@ internal func credentialsCallback(
 ) -> Int32 {
     let result: Int32
 
-    // Find username_from_url
-    let name = username.map(String.init(cString:))
-
     let credential = Credentials.fromPointer(payload!)
-    
+
     switch credential {
     case .default:
-        result = git_cred_default_new(cred)
+        result = git_credential_default_new(cred)
     case .sshAgent:
-        result = git_cred_ssh_key_from_agent(cred, name!)
+        result = git_credential_ssh_key_from_agent(cred, username)
     case .plaintext(let username, let password):
-        result = git_cred_userpass_plaintext_new(cred, username, password)
-    case .sshMemory(let username, let privateKey, let passphrase):
-        result = git_cred_ssh_key_memory_new(cred, username, nil, privateKey, passphrase)
+        result = git_credential_userpass_plaintext_new(cred, username, password)
+    case .sshMemory(let privateKey, let passphrase):
+        result = git_credential_ssh_key_memory_new(cred, username, nil, privateKey, passphrase)
+    case let .sshPath(publicKeyPath, privateKeyPath, passphrase):
+        result = git_credential_ssh_key_new(cred, username, publicKeyPath, privateKeyPath, passphrase)
     }
 
     return (result != GIT_OK.rawValue) ? -1 : 0
