@@ -143,6 +143,36 @@ extension Signature: Hashable {
     }
 }
 
+/// A git note.
+public struct Note: ObjectType, Hashable {
+    /// Notes are blobs in special branches that point to other objects.
+    public static let type: GitObjectType = .blob
+
+    /// The OID of the note blob.
+    public let oid: OID
+    /// The author of the note.
+    public let author: Signature
+    /// The committer of the note.
+    public let committer: Signature
+    /// The note message.
+    public let message: String
+
+    internal init(oid: OID, author: Signature, committer: Signature, message: String) {
+        self.oid = oid
+        self.author = author
+        self.committer = committer
+        self.message = message
+    }
+
+    /// Create an instance with a libgit2 `git_note` object.
+    public init(_ pointer: OpaquePointer) {
+        oid = OID(git_note_id(pointer).pointee)
+        author = Signature(git_note_author(pointer).pointee)
+        committer = Signature(git_note_committer(pointer).pointee)
+        message = String(cString: git_note_message(pointer))
+    }
+}
+
 /// A git commit.
 public struct Commit: ObjectType, Hashable {
     public static let type: GitObjectType = .commit

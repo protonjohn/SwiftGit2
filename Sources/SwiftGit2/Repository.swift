@@ -756,6 +756,80 @@ public final class Repository {
         }
     }
 
+    // MARK: - Notes
+    public func note(for object: ObjectType, notesRef: String? = nil) -> Result<Note, NSError> {
+        var note: OpaquePointer?
+        var targetOid = object.oid.rawValue
+        let noteResult = git_note_read(&note, self.pointer, notesRef, &targetOid)
+        guard let note, noteResult == GIT_OK.rawValue else {
+            return .failure(NSError(gitError: noteResult, pointOfFailure: "git_note_read"))
+        }
+
+        defer { git_note_free(note) }
+        return .success(Note(note))
+    }
+
+    public func createNote(
+        for object: ObjectType,
+        message: String,
+        author: Signature,
+        committer: Signature,
+        notesRef: String? = nil,
+        force: Bool = false
+    ) -> Result<Note, NSError> {
+        do {
+            let _author = try author.makeUnsafeSignature().get()
+            defer { git_signature_free(_author) }
+
+            let _committer = try committer.makeUnsafeSignature().get()
+            defer { git_signature_free(_committer) }
+
+            var noteOid = git_oid()
+            var oid = object.oid.rawValue
+            let noteResult = git_note_create(
+                &noteOid,
+                self.pointer,
+                notesRef,
+                _author,
+                _committer,
+                &oid,
+                message,
+                force ? 1 : 0
+            )
+            guard noteResult == GIT_OK.rawValue else {
+                throw NSError(gitError: noteResult, pointOfFailure: "git_note_create")
+            }
+
+            return .success(.init(oid: OID(rawValue: noteOid), author: author, committer: committer, message: message))
+        } catch {
+            return .failure(error as NSError)
+        }
+    }
+
+    public func removeNote(
+        for object: ObjectType,
+        author: Signature,
+        committer: Signature,
+        notesRef: String? = nil
+    ) -> Result<(), NSError> {
+        do {
+            let author = try author.makeUnsafeSignature().get()
+            defer { git_signature_free(author) }
+
+            let committer = try committer.makeUnsafeSignature().get()
+            defer { git_signature_free(committer) }
+
+            var oid = object.oid.rawValue
+            let noteResult = git_note_remove(self.pointer, notesRef, author, committer, &oid)
+            guard noteResult == GIT_OK.rawValue else {
+                throw NSError(gitError: noteResult, pointOfFailure: "git_note_remove")
+            }
+            return .success(())
+        } catch {
+            return .failure(error as NSError)
+        }
+    }
+
     // MARK: - Diffs
 
     public func diff(for commit: Commit) -> Result<Diff, NSError> {
