@@ -222,6 +222,17 @@ public final class Repository {
     /// repository is bare.
     public let directoryURL: URL?
 
+    // MARK: - Configuration
+    public func config() -> Result<Config, NSError> {
+        var pointer: OpaquePointer?
+        let result = git_repository_config(&pointer, self.pointer)
+        guard let pointer, result == GIT_OK.rawValue else {
+            return .failure(NSError(gitError: result, pointOfFailure: "git_repository_config"))
+        }
+
+        return .success(.init(pointer: pointer))
+    }
+
     // MARK: - Object Lookups
 
     /// Load a libgit2 object and transform it to something else.
@@ -240,7 +251,7 @@ public final class Repository {
         let result = git_object_lookup(&pointer, self.pointer, &oid, type.rawValue)
 
         guard result == GIT_OK.rawValue else {
-            return Result.failure(NSError(gitError: result, pointOfFailure: "git_object_lookup"))
+            return .failure(NSError(gitError: result, pointOfFailure: "git_object_lookup"))
         }
 
         let value = transform(pointer!)
@@ -368,12 +379,24 @@ public final class Repository {
         }
     }
 
-    public func createTag(_ name: String, target: ObjectType, signature: Signature, message: String?, force: Bool = false, signingCallback: @escaping (String) -> String) -> Result<Tag, NSError> {
+    public func createTag(
+        _ name: String,
+        target: ObjectType,
+        signature: Signature,
+        message: String?,
+        force: Bool = false,
+        signingCallback: @escaping (String) -> String
+    ) -> Result<Tag, NSError> {
+        let date = Date()
+        let formatter = DateFormatter()
+        formatter.dateFormat = "Z"
+        let tz = formatter.string(from: date)
+
         var buffer = """
             object \(target.oid)
             type \(type(of: target).type)
             tag \(name)
-            tagger \(signature)
+            tagger \(signature) \(Int(date.timeIntervalSince1970)) \(tz)
             """
 
         if var message {
@@ -617,6 +640,10 @@ public final class Repository {
                     refLogMessage
                 )
             }.get()
+
+            guard result == GIT_OK.rawValue else {
+                throw NSError(gitError: result, pointOfFailure: "git_reference_set_target")
+            }
 
             let newReference = referenceWithLibGit2Reference(newReferencePointer!)
             return .success(newReference)
@@ -934,7 +961,6 @@ public final class Repository {
         return .success(Note(note))
     }
 
-   /// Note: if you want the resulting note commit to have a signature, make sure to use `createNoteCommit` instead.
    public func createNote(
         for oid: OID,
         message: String,
@@ -942,7 +968,7 @@ public final class Repository {
         committer: Signature,
         notesRef: ReferenceType? = nil,
         force: Bool = false
-    ) -> Result<Note, NSError> {
+   ) -> Result<Note, NSError> {
         do {
             let _author = try author.makeUnsafeSignature().get()
             defer { git_signature_free(_author) }
@@ -967,6 +993,59 @@ public final class Repository {
             }
 
             return .success(.init(oid: OID(rawValue: noteOid), author: author, committer: committer, message: message))
+        } catch {
+            return .failure(error as NSError)
+        }
+    }
+
+    /// Similar to how we have to work around libgit2 to create signed tags, we do
+    /// some trickery here with Git internals to allow signing git note commits.
+    public func createNote(
+         for oid: OID,
+         message: String,
+         author: Signature,
+         committer: Signature,
+         notesRef: ReferenceType? = nil,
+         signingCallback: @escaping ((String) -> String),
+         signatureField: String? = nil,
+         force: Bool = false
+    ) -> Result<Note, NSError> {
+        do {
+            var notesRef = notesRef
+            if notesRef == nil {
+                var buf = git_buf()
+                let defaultResult = git_note_default_ref(&buf, self.pointer)
+                guard defaultResult == GIT_OK.rawValue else {
+                    throw NSError(gitError: defaultResult, pointOfFailure:  "git_note_default_ref")
+                }
+
+                let data = Data(bytes: buf.ptr, count: strnlen(buf.ptr, buf.size))
+                guard let name = String(data: data, encoding: .utf8) else {
+                    throw NSError(
+                        domain: "org.libgit2.SwiftGit2",
+                        code: 1,
+                        userInfo: [
+                            NSLocalizedDescriptionKey: "Could not determine default notes ref for repository.",
+                        ]
+                    )
+                }
+                notesRef = try reference(named: name).get()
+            }
+
+            let parent = try commit(notesRef!.oid).get()
+            let (noteCommit, _) = try createNoteCommit(
+                for: oid,
+                message: message,
+                parent: parent,
+                author: author,
+                committer: committer,
+                updateRef: notesRef,
+                signingCallback: signingCallback,
+                signatureField: signatureField,
+                force: force
+            ).get()
+
+            return readNoteCommit(for: oid, commit: noteCommit)
         } catch {
             return .failure(error as NSError)
         }

@@ -157,6 +157,12 @@ extension Signature: Hashable {
     }
 }
 
+extension Signature: CustomStringConvertible {
+    public var description: String {
+        "\(name) <\(email)>"
+    }
+}
+
 /// A git note.
 public struct Note: ObjectType, Hashable {
     /// Notes are blobs in special branches that point to other objects.
