@@ -43,7 +43,7 @@ public final class Config {
         var out: Int32 = 0
         let result = git_config_get_bool(&out, pointer, name)
         guard result == GIT_OK.rawValue else {
-            return .failure(NSError(gitError: result, pointOfFailure: "git_config_get_int32"))
+            return .failure(NSError(gitError: result, pointOfFailure: "git_config_get_bool"))
         }
         return .success(out == 0)
     }

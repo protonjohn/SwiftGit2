@@ -823,8 +823,8 @@ public final class Repository {
         parents: [Commit],
         message: String,
         signature: Signature,
-        signingCallback: ((String) -> String)? = nil,
-        signatureField: String? = nil
+        signatureField: String? = nil,
+        signingCallback: ((String) -> String)? = nil
     ) -> Result<Commit, NSError> {
         // create commit signature
         return signature.makeUnsafeSignature().flatMap { signature in
@@ -920,8 +920,8 @@ public final class Repository {
     public func commit(
         message: String,
         signature: Signature,
-        signingCallback: ((String) -> String)? = nil,
-        signatureField: String? = nil
+        signatureField: String? = nil,
+        signingCallback: ((String) -> String)? = nil
     ) -> Result<Commit, NSError> {
         return unsafeIndex().flatMap { index in
             defer { git_index_free(index) }
@@ -942,8 +942,8 @@ public final class Repository {
                     parents: [parentCommit],
                     message: message,
                     signature: signature,
-                    signingCallback: signingCallback,
-                    signatureField: signatureField
+                    signatureField: signatureField,
+                    signingCallback: signingCallback
                 )
             }
         }
@@ -1006,9 +1006,9 @@ public final class Repository {
          author: Signature,
          committer: Signature,
          notesRef: ReferenceType? = nil,
-         signingCallback: @escaping ((String) -> String),
          signatureField: String? = nil,
-         force: Bool = false
+         force: Bool = false,
+         signingCallback: @escaping ((String) -> String)
     ) -> Result<Note, NSError> {
         do {
             var notesRef = notesRef
@@ -1040,9 +1040,9 @@ public final class Repository {
                 author: author,
                 committer: committer,
                 updateRef: notesRef,
-                signingCallback: signingCallback,
                 signatureField: signatureField,
-                force: force
+                force: force,
+                signingCallback: signingCallback
             ).get()
 
             return readNoteCommit(for: oid, commit: noteCommit)
@@ -1058,9 +1058,9 @@ public final class Repository {
         author: Signature,
         committer: Signature,
         updateRef: ReferenceType? = nil,
-        signingCallback: ((String) -> String)? = nil,
         signatureField: String? = nil,
-        force: Bool = false
+        force: Bool = false,
+        signingCallback: ((String) -> String)? = nil
     ) -> Result<(Commit, Blob), NSError> {
         do {
             let author = try author.makeUnsafeSignature().get()
@@ -1103,8 +1103,8 @@ public final class Repository {
                     parents: noteCommit.parents.map { try commit($0.oid).get() },
                     message: noteCommit.message,
                     signature: noteCommit.author,
-                    signingCallback: signingCallback,
-                    signatureField: signatureField
+                    signatureField: signatureField,
+                    signingCallback: signingCallback
                 ).get()
             }
 
@@ -1129,9 +1129,9 @@ public final class Repository {
         author: Signature,
         committer: Signature,
         updateRef: ReferenceType? = nil,
-        signingCallback: ((String) -> String)? = nil,
         signatureField: String? = nil,
-        force: Bool = false
+        force: Bool = false,
+        signingCallback: ((String) -> String)? = nil
     ) -> Result<Commit, NSError> {
         do {
             let author = try author.makeUnsafeSignature().get()
@@ -1165,8 +1165,8 @@ public final class Repository {
                     parents: noteCommit.parents.map { try self.commit($0.oid).get() },
                     message: noteCommit.message,
                     signature: noteCommit.author,
-                    signingCallback: signingCallback,
-                    signatureField: signatureField
+                    signatureField: signatureField,
+                    signingCallback: signingCallback
                 ).get()
             }
 
