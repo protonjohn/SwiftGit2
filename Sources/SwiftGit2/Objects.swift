@@ -68,6 +68,20 @@ public enum GitObjectType: RawRepresentable {
     public static func fromPointer(_ pointer: OpaquePointer) -> Self? {
         Self(rawValue: git_object_type(pointer))
     }
+
+    public static func object(_ pointer: OpaquePointer) -> ObjectType? {
+        let type = Self.fromPointer(pointer)
+        if type == Blob.type {
+            return Blob(pointer)
+        } else if type == Commit.type {
+            return Commit(pointer)
+        } else if type == Tag.type {
+            return Tag(pointer)
+        } else if type == Tree.type {
+            return Tree(pointer)
+        }
+        return nil
+    }
 }
 
 /// A git object.

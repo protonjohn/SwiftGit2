@@ -275,35 +275,38 @@ public final class Repository {
         return transform(pointers)
     }
 
+    private func withGitReference<T>(_ reference: ReferenceType, transform: (OpaquePointer) -> T) -> Result<T, NSError> {
+        var pointer: OpaquePointer? = nil
+        let result = git_reference_lookup(&pointer, self.pointer, reference.longName)
+
+        guard let pointer, result == GIT_OK.rawValue else {
+            return .failure(NSError(gitError: result, pointOfFailure: "git_reference_lookup"))
+        }
+
+        return .success(transform(pointer))
+    }
+
     /// Loads the object with the given OID.
     ///
     /// oid - The OID of the blob to look up.
     ///
     /// Returns a `Blob`, `Commit`, `Tag`, or `Tree` if one exists, or an error.
     public func object(_ oid: OID) -> Result<ObjectType, NSError> {
-        return withGitObject(oid, type: .any) { object in
-            let type = GitObjectType.fromPointer(object)
-            if type == Blob.type {
-                return Result.success(Blob(object))
-            } else if type == Commit.type {
-                return Result.success(Commit(object))
-            } else if type == Tag.type {
-                return Result.success(Tag(object))
-            } else if type == Tree.type {
-                return Result.success(Tree(object))
+        return withGitObject(oid, type: .any) { pointer in
+            guard let object = GitObjectType.object(pointer) else {
+                let error = NSError(
+                    domain: "org.libgit2.SwiftGit2",
+                    code: 1,
+                    userInfo: [
+                        NSLocalizedDescriptionKey: "Unrecognized git_object_t for oid '\(oid)'.",
+                    ]
+                )
+                return .failure(error)
             }
-
-            let error = NSError(
-                domain: "org.libgit2.SwiftGit2",
-                code: 1,
-                userInfo: [
-                    NSLocalizedDescriptionKey: "Unrecognized git_object_t '\(String(describing: type))' for oid '\(oid)'.",
-                ]
-            )
-            return Result.failure(error)
+            return .success(object)
         }
     }
-
+    
     /// Loads the blob with the given OID.
     ///
     /// oid - The OID of the blob to look up.
@@ -363,7 +366,61 @@ public final class Repository {
                 ) { Tag($0) }
             }
         }
+    }
 
+    public func createTag(_ name: String, target: ObjectType, signature: Signature, message: String?, force: Bool = false, signingCallback: @escaping (String) -> String) -> Result<Tag, NSError> {
+        var buffer = """
+            object \(target.oid)
+            type \(type(of: target).type)
+            tag \(name)
+            tagger \(signature)
+            """
+
+        if var message {
+            if !message.hasSuffix("\n") {
+                message += "\n"
+            }
+
+            var buf = git_buf()
+            git_message_prettify(&buf, message, 0, /* ascii for # */ 35)
+            defer { git_buf_free(&buf) }
+
+            let data = Data(
+                bytes: buf.ptr,
+                count: strnlen(buf.ptr, buf.size)
+            )
+
+            let str = String(data: data, encoding: .utf8)!
+            buffer += "\n\n\(str)"
+        }
+
+        var tagSignature = signingCallback(buffer)
+        if !tagSignature.hasSuffix("\n") {
+            tagSignature += "\n"
+        }
+        buffer += tagSignature
+
+        return signature.makeUnsafeSignature().flatMap { signature in
+            defer { signature.deallocate() }
+            return withGitObject(target.oid, type: type(of: target).type) { targetObject in
+                var tagOid = git_oid()
+                let createResult = git_tag_create_from_buffer(
+                    &tagOid,
+                    self.pointer,
+                    buffer,
+                    force ? 1 : 0
+                )
+
+                guard createResult == GIT_OK.rawValue else{
+                    return .failure(NSError(gitError: createResult, pointOfFailure: "git_tag_create_from_buffer"))
+                }
+
+                return withGitObject(
+                    OID(rawValue: tagOid),
+                    type: .tag
+                ) { Tag($0) }
+            }
+        }
     }
 
     /// Loads the tree with the given OID.
@@ -495,13 +552,77 @@ public final class Repository {
         var pointer: OpaquePointer? = nil
         let result = git_reference_lookup(&pointer, self.pointer, name)
 
-        guard result == GIT_OK.rawValue else {
+        guard let pointer, result == GIT_OK.rawValue else {
             return Result.failure(NSError(gitError: result, pointOfFailure: "git_reference_lookup"))
         }
 
-        let value = referenceWithLibGit2Reference(pointer!)
-        git_reference_free(pointer)
+        defer { git_reference_free(pointer) }
+
+        let value = referenceWithLibGit2Reference(pointer)
         return Result.success(value)
+    }
+
+    public func reference(parsing spec: String) -> Result<ObjectType, NSError> {
+        var pointer: OpaquePointer? = nil
+        let result = git_revparse_single(&pointer, self.pointer, spec)
+        guard result == GIT_OK.rawValue else {
+            return .failure(NSError(gitError: result, pointOfFailure: "git_revparse_single"))
+        }
+        defer { git_object_free(pointer) }
+        guard let pointer, let object = GitObjectType.object(pointer) else {
+            let error = NSError(
+                domain: "org.libgit2.SwiftGit2",
+                code: 1,
+                userInfo: [
+                    NSLocalizedDescriptionKey: "Unrecognized git_object_t for spec '\(spec)'.",
+                ]
+            )
+            return .failure(error)
+        }
+        return .success(object)
+    }
+
+    public func references(parsing spec: String) -> Result<RevisionSpecification, NSError> {
+        var revspec = git_revspec()
+        let result = git_revparse(&revspec, self.pointer, spec)
+
+        guard result == GIT_OK.rawValue else {
+            return .failure(NSError(gitError: result, pointOfFailure: "git_revparse"))
+        }
+
+        guard let spec = RevisionSpecification(revspec) else {
+            let error = NSError(
+                domain: "org.libgit2.SwiftGit2",
+                code: 1,
+                userInfo: [
+                    NSLocalizedDescriptionKey: "Unrecognized git_object_t for spec '\(spec)'.",
+                    ]
+            )
+
+            return .failure(error)
+        }
+
+        return .success(spec)
+    }
+
+    public func setTarget(of reference: ReferenceType, to oid: OID, refLogMessage: String) -> Result<ReferenceType, NSError> {
+        do {
+            var newReferencePointer: OpaquePointer?
+            var oid = oid.rawValue
+            let result = try withGitReference(reference) { referencePointer in
+                git_reference_set_target(
+                    &newReferencePointer,
+                    referencePointer,
+                    &oid,
+                    refLogMessage
+                )
+            }.get()
+
+            let newReference = referenceWithLibGit2Reference(newReferencePointer!)
+            return .success(newReference)
+        } catch {
+            return .failure(error as NSError)
+        }
     }
 
     /// Load and return a list of all local branches.
@@ -674,7 +795,9 @@ public final class Repository {
         tree treeOID: OID,
         parents: [Commit],
         message: String,
-        signature: Signature
+        signature: Signature,
+        signingCallback: ((String) -> String)? = nil,
+        signatureField: String? = nil
     ) -> Result<Commit, NSError> {
         // create commit signature
         return signature.makeUnsafeSignature().flatMap { signature in
@@ -713,11 +836,12 @@ public final class Repository {
             let parentsContiguous = ContiguousArray(parentGitCommits)
             return parentsContiguous.withUnsafeBufferPointer { unsafeBuffer in
                 var commitOID = git_oid()
+                var commitBuf = git_buf()
                 let parentsPtr = UnsafeMutablePointer(mutating: unsafeBuffer.baseAddress)
-                let result = git_commit_create(
-                    &commitOID,
+
+                let commitBufferResult = git_commit_create_buffer(
+                    &commitBuf,
                     self.pointer,
-                    "HEAD",
                     signature,
                     signature,
                     "UTF-8",
@@ -726,17 +850,52 @@ public final class Repository {
                     parents.count,
                     parentsPtr
                 )
-                guard result == GIT_OK.rawValue else {
-                    return .failure(NSError(gitError: result, pointOfFailure: "git_commit_create"))
+                guard commitBufferResult == GIT_OK.rawValue else {
+                    return .failure(NSError(gitError: commitBufferResult, pointOfFailure: "git_commit_create_buffer"))
                 }
-                return commit(OID(commitOID))
+
+                let data = Data(
+                    bytes: commitBuf.ptr,
+                    count: strnlen(commitBuf.ptr, commitBuf.size)
+                )
+                let commitContent = String(data: data, encoding: .utf8)!
+                let commitSignature: String? = signingCallback?(commitContent)
+
+                // all this extra fluff just so we can have an optional signature.
+                let commitResult = git_commit_create_with_signature(
+                    &commitOID,
+                    self.pointer,
+                    commitContent,
+                    commitSignature,
+                    signatureField
+                )
+                guard commitResult == GIT_OK.rawValue else {
+                    return .failure(NSError(gitError: commitResult, pointOfFailure: "git_commit_create_with_signature"))
+                }
+
+                return HEAD().flatMap {
+                    let oid = OID(rawValue: commitOID)
+                    let subject = message.split(separator: "\n", maxSplits: 1).first!
+                    return setTarget(
+                        of: $0,
+                        to: oid,
+                        refLogMessage: "commit: \(subject)"
+                    ).flatMap { _ in
+                        commit(oid)
+                    }
+                }
             }
         }
     }
 
     /// Perform a commit of the staged files with the specified message and signature,
     /// assuming we are not doing a merge and using the current tip as the parent.
-    public func commit(message: String, signature: Signature) -> Result<Commit, NSError> {
+    public func commit(
+        message: String,
+        signature: Signature,
+        signingCallback: ((String) -> String)? = nil,
+        signatureField: String? = nil
+    ) -> Result<Commit, NSError> {
         return unsafeIndex().flatMap { index in
             defer { git_index_free(index) }
             var treeOID = git_oid()
@@ -751,7 +910,14 @@ public final class Repository {
                 return .failure(NSError(gitError: nameToIDResult, pointOfFailure: "git_reference_name_to_id"))
             }
             return commit(OID(parentID)).flatMap { parentCommit in
-                commit(tree: OID(treeOID), parents: [parentCommit], message: message, signature: signature)
+                commit(
+                    tree: OID(treeOID),
+                    parents: [parentCommit],
+                    message: message,
+                    signature: signature,
+                    signingCallback: signingCallback,
+                    signatureField: signatureField
+                )
             }
         }
     }
@@ -764,17 +930,17 @@ public final class Repository {
         guard let note, noteResult == GIT_OK.rawValue else {
             return .failure(NSError(gitError: noteResult, pointOfFailure: "git_note_read"))
         }
-
         defer { git_note_free(note) }
         return .success(Note(note))
     }
 
-    public func createNote(
+   /// Note: if you want the resulting note commit to have a signature, make sure to use `createNoteCommit` instead.
+   public func createNote(
         for oid: OID,
         message: String,
         author: Signature,
         committer: Signature,
-        notesRef: String? = nil,
+        notesRef: ReferenceType? = nil,
         force: Bool = false
     ) -> Result<Note, NSError> {
         do {
@@ -789,7 +955,7 @@ public final class Repository {
             let noteResult = git_note_create(
                 &noteOid,
                 self.pointer,
-                notesRef,
+                notesRef?.longName,
                 _author,
                 _committer,
                 &oid,
@@ -806,11 +972,172 @@ public final class Repository {
         }
     }
 
+    public func createNoteCommit(
+        for oid: OID,
+        message: String,
+        parent: Commit,
+        author: Signature,
+        committer: Signature,
+        updateRef: ReferenceType? = nil,
+        signingCallback: ((String) -> String)? = nil,
+        signatureField: String? = nil,
+        force: Bool = false
+    ) -> Result<(Commit, Blob), NSError> {
+        do {
+            let author = try author.makeUnsafeSignature().get()
+            defer { git_signature_free(author) }
+
+            let committer = try committer.makeUnsafeSignature().get()
+            defer { git_signature_free(committer) }
+
+            var oid = oid.rawValue
+            var noteCommitOid = git_oid()
+            var noteBlobOid = git_oid()
+
+            let result = try withGitObject(parent.oid, type: .commit) { commitPointer in
+                git_note_commit_create(
+                    &noteCommitOid,
+                    &noteBlobOid,
+                    self.pointer,
+                    commitPointer,
+                    author,
+                    committer,
+                    &oid,
+                    message,
+                    force ? 1 : 0
+                )
+            }.get()
+
+            guard result == GIT_OK.rawValue else {
+                throw NSError(gitError: result, pointOfFailure: "git_note_create")
+            }
+
+            var noteCommit = try withGitObject(OID(rawValue: noteCommitOid), type: .commit) { Commit($0) }.get()
+            let noteBlob = try withGitObject(OID(rawValue: noteBlobOid), type: .blob) { Blob($0) }.get()
+
+            if let signingCallback {
+                // git_note_commit_create makes a dangling commit anyway, it should eventually get picked up
+                // by the garbage collector. Create a commit with exactly the same contents as the note commit,
+                // but pass the signing callback as well so that we can sign the contents. Then return that one.
+                noteCommit = try commit(
+                    tree: noteCommit.tree.oid,
+                    parents: noteCommit.parents.map { try commit($0.oid).get() },
+                    message: noteCommit.message,
+                    signature: noteCommit.author,
+                    signingCallback: signingCallback,
+                    signatureField: signatureField
+                ).get()
+            }
+
+            if let updateRef {
+               let subject = noteCommit.message.split(separator: "\n", maxSplits: 1).first!
+                _ = try setTarget(
+                    of: updateRef,
+                    to: noteCommit.oid,
+                    refLogMessage: "commit: \(subject)"
+                ).get()
+            }
+
+            return .success((noteCommit, noteBlob))
+        } catch {
+            return .failure(error as NSError)
+        }
+    }
+
+    public func removeNoteCommit(
+        for oid: OID,
+        commit: Commit,
+        author: Signature,
+        committer: Signature,
+        updateRef: ReferenceType? = nil,
+        signingCallback: ((String) -> String)? = nil,
+        signatureField: String? = nil,
+        force: Bool = false
+    ) -> Result<Commit, NSError> {
+        do {
+            let author = try author.makeUnsafeSignature().get()
+            defer { git_signature_free(author) }
+
+            let committer = try committer.makeUnsafeSignature().get()
+            defer { git_signature_free(committer) }
+
+            var oid = oid.rawValue
+            var noteCommitOid = git_oid()
+
+            let result = try withGitObject(commit.oid, type: .commit) { commitPointer in
+                git_note_commit_remove(
+                    &noteCommitOid,
+                    self.pointer,
+                    commitPointer,
+                    author,
+                    committer,
+                    &oid
+                )
+            }.get()
+
+            guard result == GIT_OK.rawValue else {
+                throw NSError(gitError: result, pointOfFailure: "git_note_create")
+            }
+
+            var noteCommit = try withGitObject(OID(rawValue: noteCommitOid), type: .commit) { Commit($0) }.get()
+            if let signingCallback {
+                noteCommit = try self.commit(
+                    tree: noteCommit.tree.oid,
+                    parents: noteCommit.parents.map { try self.commit($0.oid).get() },
+                    message: noteCommit.message,
+                    signature: noteCommit.author,
+                    signingCallback: signingCallback,
+                    signatureField: signatureField
+                ).get()
+            }
+
+            if let updateRef {
+                let subject = noteCommit.message.split(separator: "\n", maxSplits: 1).first!
+                _ = try setTarget(
+                    of: updateRef,
+                    to: noteCommit.oid,
+                    refLogMessage: "commit: \(subject)"
+                ).get()
+            }
+            return .success(noteCommit)
+        } catch {
+            return .failure(error as NSError)
+        }
+    }
+
+    public func readNoteCommit(
+        for oid: OID,
+        commit: Commit
+    ) -> Result<Note, NSError> {
+        do {
+            var oid = oid.rawValue
+            var note: OpaquePointer?
+
+            let result = try withGitObject(commit.oid, type: .commit) { commitPointer in
+                git_note_commit_read(
+                    &note,
+                    self.pointer,
+                    commitPointer,
+                    &oid
+                )
+            }.get()
+
+            guard let note, result == GIT_OK.rawValue else {
+                throw NSError(gitError: result, pointOfFailure: "git_note_create")
+            }
+
+            return .success(Note(note))
+        } catch {
+            return .failure(error as NSError)
+        }
+    }
+
+    /// Note: if you want the resulting note commit to have a signature, make sure to use `removeNoteCommit` instead.
     public func removeNote(
         for oid: OID,
         author: Signature,
         committer: Signature,
-        notesRef: String? = nil
+        notesRef: ReferenceType? = nil
     ) -> Result<(), NSError> {
         do {
             let author = try author.makeUnsafeSignature().get()
@@ -820,7 +1147,7 @@ public final class Repository {
             defer { git_signature_free(committer) }
 
             var oid = oid.rawValue
-            let noteResult = git_note_remove(self.pointer, notesRef, author, committer, &oid)
+            let noteResult = git_note_remove(self.pointer, notesRef?.longName, author, committer, &oid)
             guard noteResult == GIT_OK.rawValue else {
                 throw NSError(gitError: noteResult, pointOfFailure: "git_note_remove")
             }
