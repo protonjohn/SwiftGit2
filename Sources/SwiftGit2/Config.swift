@@ -29,14 +29,16 @@ public final class Config {
         return Self(pointer: pointer)
     }
 
-    public static func global(accordingTo config: Config) throws -> Self {
-        var pointer: OpaquePointer?
+    public var global: Self {
+        get throws {
+            var pointer: OpaquePointer?
 
-        let result = git_config_open_global(&pointer, config.pointer)
-        guard let pointer, result == GIT_OK.rawValue else {
-            throw NSError(gitError: result, pointOfFailure: "git_config_open_global")
+            let result = git_config_open_global(&pointer, self.pointer)
+            guard let pointer, result == GIT_OK.rawValue else {
+                throw NSError(gitError: result, pointOfFailure: "git_config_open_global")
+            }
+            return Self(pointer: pointer)
         }
-        return Self(pointer: pointer)
     }
 
     public func get(_ type: Bool.Type, _ name: String) -> Result<Bool, NSError> {
