@@ -591,7 +591,7 @@ public final class Repository {
         return Result.success(value)
     }
 
-    public func reference(parsing spec: String) -> Result<ObjectType, NSError> {
+    public func object(parsing spec: String) -> Result<ObjectType, NSError> {
         var pointer: OpaquePointer? = nil
         let result = git_revparse_single(&pointer, self.pointer, spec)
         guard result == GIT_OK.rawValue else {
@@ -611,7 +611,7 @@ public final class Repository {
         return .success(object)
     }
 
-    public func references(parsing spec: String) -> Result<RevisionSpecification, NSError> {
+    public func objects(parsing spec: String) -> Result<RevisionSpecification, NSError> {
         var revspec = git_revspec()
         let result = git_revparse(&revspec, self.pointer, spec)
 
