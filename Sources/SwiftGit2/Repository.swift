@@ -385,7 +385,7 @@ public final class Repository {
         signature: Signature,
         message: String?,
         force: Bool = false,
-        signingCallback: @escaping (String) -> String
+        signingCallback: ((String) throws -> String)?
     ) -> Result<Tag, NSError> {
         let date = Date()
         let formatter = DateFormatter()
@@ -417,11 +417,17 @@ public final class Repository {
             buffer += "\n\n\(str)"
         }
 
-        var tagSignature = signingCallback(buffer)
-        if !tagSignature.hasSuffix("\n") {
-            tagSignature += "\n"
+        if let signingCallback {
+            do {
+                var tagSignature = try signingCallback(buffer)
+                if !tagSignature.hasSuffix("\n") {
+                    tagSignature += "\n"
+                }
+                buffer += tagSignature
+            } catch {
+                return .failure(error as NSError)
+            }
         }
-        buffer += tagSignature
 
         return signature.makeUnsafeSignature().flatMap { signature in
             defer { signature.deallocate() }
@@ -824,7 +830,7 @@ public final class Repository {
         message: String,
         signature: Signature,
         signatureField: String? = nil,
-        signingCallback: ((String) -> String)? = nil
+        signingCallback: ((String) throws -> String)? = nil
     ) -> Result<Commit, NSError> {
         // create commit signature
         return signature.makeUnsafeSignature().flatMap { signature in
@@ -886,7 +892,12 @@ public final class Repository {
                     count: strnlen(commitBuf.ptr, commitBuf.size)
                 )
                 let commitContent = String(data: data, encoding: .utf8)!
-                let commitSignature: String? = signingCallback?(commitContent)
+                let commitSignature: String?
+                do {
+                    commitSignature = try signingCallback?(commitContent)
+                } catch {
+                    return .failure(error as NSError)
+                }
 
                 // all this extra fluff just so we can have an optional signature.
                 let commitResult = git_commit_create_with_signature(
@@ -900,17 +911,7 @@ public final class Repository {
                     return .failure(NSError(gitError: commitResult, pointOfFailure: "git_commit_create_with_signature"))
                 }
 
-                return HEAD().flatMap {
-                    let oid = OID(rawValue: commitOID)
-                    let subject = message.split(separator: "\n", maxSplits: 1).first!
-                    return setTarget(
-                        of: $0,
-                        to: oid,
-                        refLogMessage: "commit: \(subject)"
-                    ).flatMap { _ in
-                        commit(oid)
-                    }
-                }
+                return commit(OID(rawValue: commitOID))
             }
         }
     }
@@ -921,7 +922,7 @@ public final class Repository {
         message: String,
         signature: Signature,
         signatureField: String? = nil,
-        signingCallback: ((String) -> String)? = nil
+        signingCallback: ((String) throws -> String)? = nil
     ) -> Result<Commit, NSError> {
         return unsafeIndex().flatMap { index in
             defer { git_index_free(index) }
@@ -1008,7 +1009,7 @@ public final class Repository {
          notesRef: ReferenceType? = nil,
          signatureField: String? = nil,
          force: Bool = false,
-         signingCallback: @escaping ((String) -> String)
+         signingCallback: ((String) throws -> String)?
     ) -> Result<Note, NSError> {
         do {
             var notesRef = notesRef
@@ -1060,7 +1061,7 @@ public final class Repository {
         updateRef: ReferenceType? = nil,
         signatureField: String? = nil,
         force: Bool = false,
-        signingCallback: ((String) -> String)? = nil
+        signingCallback: ((String) throws -> String)? = nil
     ) -> Result<(Commit, Blob), NSError> {
         do {
             let author = try author.makeUnsafeSignature().get()
@@ -1131,7 +1132,7 @@ public final class Repository {
         updateRef: ReferenceType? = nil,
         signatureField: String? = nil,
         force: Bool = false,
-        signingCallback: ((String) -> String)? = nil
+        signingCallback: ((String) throws -> String)? = nil
     ) -> Result<Commit, NSError> {
         do {
             let author = try author.makeUnsafeSignature().get()
