@@ -1058,6 +1058,7 @@ public final class Repository {
          message: String,
          author: Signature,
          committer: Signature,
+         noteCommitMessage: String? = nil,
          notesRefName: String? = nil,
          signatureField: String? = nil,
          force: Bool = false,
@@ -1077,6 +1078,7 @@ public final class Repository {
                 parent: parent,
                 author: author,
                 committer: committer,
+                noteCommitMessage: noteCommitMessage,
                 updateRefName: notesRefName,
                 signatureField: signatureField,
                 force: force,
@@ -1095,6 +1097,7 @@ public final class Repository {
         parent: Commit?,
         author: Signature,
         committer: Signature,
+        noteCommitMessage: String? = nil,
         updateRefName: String? = nil, // This is a string so it can create the reference if needed
         signatureField: String? = nil,
         force: Bool = false,
@@ -1154,7 +1157,7 @@ public final class Repository {
                 noteCommit = try commit(
                     tree: noteCommit.tree.oid,
                     parents: noteCommit.parents.map { try commit($0.oid).get() },
-                    message: noteCommit.message,
+                    message: noteCommitMessage ?? noteCommit.message,
                     signature: noteCommit.author,
                     signatureField: signatureField,
                     signingCallback: signingCallback
@@ -1295,6 +1298,7 @@ public final class Repository {
         for oid: OID,
         author: Signature,
         committer: Signature,
+        noteCommitMessage: String? = nil,
         notesRefName: String? = nil,
         signatureField: String? = nil,
         signingCallback: ((String) throws -> String)? = nil
@@ -1328,7 +1332,7 @@ public final class Repository {
                 noteCommit = try commit(
                     tree: noteCommit.tree.oid,
                     parents: noteCommit.parents.map { try commit($0.oid).get() },
-                    message: noteCommit.message,
+                    message: noteCommitMessage ?? noteCommit.message,
                     signature: noteCommit.author,
                     signatureField: signatureField,
                     signingCallback: signingCallback
