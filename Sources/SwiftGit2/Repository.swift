@@ -591,6 +591,36 @@ public final class Repository {
         return Result.success(value)
     }
 
+    public func createReference(
+        named name: String,
+        pointingTo oid: OID,
+        force: Bool,
+        reflogMessage: String
+    ) -> Result<ReferenceType, NSError> {
+        var pointer: OpaquePointer? = nil
+        var oid = oid.rawValue
+        let result = git_reference_create(&pointer, self.pointer, name, &oid, force ? 1 : 0, reflogMessage)
+
+        guard let pointer, result == GIT_OK.rawValue else {
+            return Result.failure(NSError(gitError: result, pointOfFailure: "git_reference_create"))
+        }
+
+        defer { git_reference_free(pointer) }
+
+        let value = referenceWithLibGit2Reference(pointer)
+        return Result.success(value)
+    }
+
+    public func removeReference(named name: String) -> Result<(), NSError> {
+        let result = git_reference_remove(self.pointer, name)
+
+        guard result == GIT_OK.rawValue else {
+            return Result.failure(NSError(gitError: result, pointOfFailure: "git_reference_create"))
+        }
+
+        return .success(())
+    }
+
     public func object(parsing spec: String) -> Result<ObjectType, NSError> {
         var pointer: OpaquePointer? = nil
         let result = git_revparse_single(&pointer, self.pointer, spec)
@@ -999,6 +1029,28 @@ public final class Repository {
         }
     }
 
+    public var defaultNotesRefName: String {
+        get throws {
+            var buf = git_buf()
+            let result = git_note_default_ref(&buf, self.pointer)
+            guard result == GIT_OK.rawValue else {
+                throw NSError(gitError: result, pointOfFailure:  "git_note_default_ref")
+            }
+
+            let data = Data(bytes: buf.ptr, count: strnlen(buf.ptr, buf.size))
+            guard let name = String(data: data, encoding: .utf8) else {
+                throw NSError(
+                    domain: "org.libgit2.SwiftGit2",
+                    code: 1,
+                    userInfo: [
+                        NSLocalizedDescriptionKey: "Could not determine default notes ref for repository.",
+                    ]
+                )
+            }
+            return name
+        }
+    }
+
     /// Similar to how we have to work around libgit2 to create signed tags, we do
     /// some trickery here with Git internals to allow signing git note commits.
     public func createNote(
@@ -1006,41 +1058,26 @@ public final class Repository {
          message: String,
          author: Signature,
          committer: Signature,
-         notesRef: ReferenceType? = nil,
+         notesRefName: String? = nil,
          signatureField: String? = nil,
          force: Bool = false,
          signingCallback: ((String) throws -> String)?
     ) -> Result<Note, NSError> {
         do {
-            var notesRef = notesRef
-            if notesRef == nil {
-                var buf = git_buf()
-                let defaultResult = git_note_default_ref(&buf, self.pointer)
-                guard defaultResult == GIT_OK.rawValue else {
-                    throw NSError(gitError: defaultResult, pointOfFailure:  "git_note_default_ref")
-                }
+            let notesRefName = try notesRefName ?? defaultNotesRefName
 
-                let data = Data(bytes: buf.ptr, count: strnlen(buf.ptr, buf.size))
-                guard let name = String(data: data, encoding: .utf8) else {
-                    throw NSError(
-                        domain: "org.libgit2.SwiftGit2",
-                        code: 1,
-                        userInfo: [
-                            NSLocalizedDescriptionKey: "Could not determine default notes ref for repository.",
-                        ]
-                    )
-                }
-                notesRef = try reference(named: name).get()
+            var parent: Commit?
+            if let reference = try? reference(named: notesRefName).get() {
+                parent = try commit(reference.oid).get()
             }
 
-            let parent = try commit(notesRef!.oid).get()
             let (noteCommit, _) = try createNoteCommit(
                 for: oid,
                 message: message,
                 parent: parent,
                 author: author,
                 committer: committer,
-                updateRef: notesRef,
+                updateRefName: notesRefName,
                 signatureField: signatureField,
                 force: force,
                 signingCallback: signingCallback
@@ -1055,10 +1092,10 @@ public final class Repository {
     public func createNoteCommit(
         for oid: OID,
         message: String,
-        parent: Commit,
+        parent: Commit?,
         author: Signature,
         committer: Signature,
-        updateRef: ReferenceType? = nil,
+        updateRefName: String? = nil, // This is a string so it can create the reference if needed
         signatureField: String? = nil,
         force: Bool = false,
         signingCallback: ((String) throws -> String)? = nil
@@ -1074,19 +1111,34 @@ public final class Repository {
             var noteCommitOid = git_oid()
             var noteBlobOid = git_oid()
 
-            let result = try withGitObject(parent.oid, type: .commit) { commitPointer in
-                git_note_commit_create(
+            let result: Int32
+            if let parent {
+                result = try withGitObject(parent.oid, type: .commit) { parentCommit in
+                    git_note_commit_create(
+                        &noteCommitOid,
+                        &noteBlobOid,
+                        self.pointer,
+                        parentCommit,
+                        author,
+                        committer,
+                        &oid,
+                        message,
+                        force ? 1 : 0
+                    )
+                }.get()
+            } else {
+                result = git_note_commit_create(
                     &noteCommitOid,
                     &noteBlobOid,
                     self.pointer,
-                    commitPointer,
+                    nil,
                     author,
                     committer,
                     &oid,
                     message,
                     force ? 1 : 0
                 )
-            }.get()
+            }
 
             guard result == GIT_OK.rawValue else {
                 throw NSError(gitError: result, pointOfFailure: "git_note_create")
@@ -1109,12 +1161,15 @@ public final class Repository {
                 ).get()
             }
 
-            if let updateRef {
-               let subject = noteCommit.message.split(separator: "\n", maxSplits: 1).first!
-                _ = try setTarget(
-                    of: updateRef,
-                    to: noteCommit.oid,
-                    refLogMessage: "commit: \(subject)"
+            if let updateRefName {
+                let subject = noteCommit.message.split(separator: "\n", maxSplits: 1).first!
+                // We use 'create' with force here in case the reference doesn't already exist. If it does, it will be
+                // overwritten instead.
+                _ = try createReference(
+                    named: updateRefName,
+                    pointingTo: noteCommit.oid,
+                    force: true,
+                    reflogMessage: "commit: \(subject)"
                 ).get()
             }
 
@@ -1212,12 +1267,11 @@ public final class Repository {
         }
     }
 
-    /// Note: if you want the resulting note commit to have a signature, make sure to use `removeNoteCommit` instead.
     public func removeNote(
         for oid: OID,
         author: Signature,
         committer: Signature,
-        notesRef: ReferenceType? = nil
+        notesRefName: String? = nil
     ) -> Result<(), NSError> {
         do {
             let author = try author.makeUnsafeSignature().get()
@@ -1227,10 +1281,72 @@ public final class Repository {
             defer { git_signature_free(committer) }
 
             var oid = oid.rawValue
-            let noteResult = git_note_remove(self.pointer, notesRef?.longName, author, committer, &oid)
+            let noteResult = git_note_remove(self.pointer, notesRefName, author, committer, &oid)
             guard noteResult == GIT_OK.rawValue else {
                 throw NSError(gitError: noteResult, pointOfFailure: "git_note_remove")
             }
+            return .success(())
+        } catch {
+            return .failure(error as NSError)
+        }
+    }
+
+    public func removeNote(
+        for oid: OID,
+        author: Signature,
+        committer: Signature,
+        notesRefName: String? = nil,
+        signatureField: String? = nil,
+        signingCallback: ((String) throws -> String)? = nil
+    ) -> Result<(), NSError> {
+        do {
+            let author = try author.makeUnsafeSignature().get()
+            defer { git_signature_free(author) }
+
+            let committer = try committer.makeUnsafeSignature().get()
+            defer { git_signature_free(committer) }
+
+            var oid = oid.rawValue
+
+            // We have to get this first, just in case getting the default fails after we create the note.
+            let notesRefName = try notesRefName ?? defaultNotesRefName
+            let noteResult = git_note_remove(self.pointer, notesRefName, author, committer, &oid)
+
+            guard noteResult == GIT_OK.rawValue else {
+                throw NSError(gitError: noteResult, pointOfFailure: "git_note_remove")
+            }
+
+            guard let signingCallback else {
+                return .success(())
+            }
+
+            let notesRef = try reference(named: notesRefName).get()
+            // Removing the note should have updated the ref by default, find the notes commit at the tip of the branch
+            var noteCommit = try commit(notesRef.oid).get()
+
+            do {
+                noteCommit = try commit(
+                    tree: noteCommit.tree.oid,
+                    parents: noteCommit.parents.map { try commit($0.oid).get() },
+                    message: noteCommit.message,
+                    signature: noteCommit.author,
+                    signatureField: signatureField,
+                    signingCallback: signingCallback
+                ).get()
+
+                _ = try setTarget(of: notesRef, to: noteCommit.oid, refLogMessage: "commit: \(noteCommit.message)").get()
+            } catch { // Something happened after we created the note commit, so we need to roll back the reference.
+                if let parent = noteCommit.parents.first {
+                    _ = try setTarget(
+                        of: notesRef,
+                        to: parent.oid,
+                        refLogMessage: "signing error: rollback git_note_remove"
+                    ).get()
+                } else {
+                    try removeReference(named: notesRefName).get()
+                }
+            }
+
             return .success(())
         } catch {
             return .failure(error as NSError)
