@@ -1,5 +1,0 @@
-module Clibssl [system] {
-  header "ssl.h"
-  link "openssl"
-  export *
-}
