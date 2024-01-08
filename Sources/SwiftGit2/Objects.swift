@@ -245,19 +245,27 @@ public struct Commit: ObjectType, Hashable {
     }
 
     public func trailers() -> Result<[Trailer], NSError> {
+        do {
+            let trailers = try [Trailer](message: message)
+            return .success(trailers)
+        } catch {
+            return .failure(error as NSError)
+        }
+    }
+}
+
+extension Array<Commit.Trailer> {
+    public init(message: String) throws {
         var array = git_message_trailer_array()
         defer { git_message_trailer_array_free(&array) }
 
         let result = git_message_trailers(&array, message)
         guard result == GIT_OK.rawValue else {
-            let error = NSError(gitError: result, pointOfFailure: "git_message_trailers")
-            return .failure(error)
+            throw NSError(gitError: result, pointOfFailure: "git_message_trailers")
         }
 
-        let trailers = UnsafeBufferPointer(start: array.trailers, count: array.count)
-            .map(Trailer.init)
-
-        return .success(trailers)
+        self = UnsafeBufferPointer(start: array.trailers, count: array.count)
+            .map(Element.init)
     }
 }
 
