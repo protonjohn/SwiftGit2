@@ -234,9 +234,14 @@ public struct Commit: ObjectType, Hashable {
         }
     }
 
-    public struct Trailer: Hashable {
+    public struct Trailer: Hashable, Codable {
         public let key: String
         public let value: String
+
+        public init(key: String, value: String) {
+            self.key = key
+            self.value = value
+        }
 
         public init(_ trailer: git_message_trailer) {
             self.key = String(cString: trailer.key)
