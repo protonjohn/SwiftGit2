@@ -23,15 +23,15 @@ public struct OID: RawRepresentable {
         }
 
         let pointer = UnsafeMutablePointer<git_oid>.allocate(capacity: 1)
-        let result = git_oid_fromstr(pointer, string)
+        defer { pointer.deallocate() }
 
-        if result < GIT_OK.rawValue {
-            pointer.deallocate()
+        do {
+            try calling(git_oid_fromstr(pointer, string))
+        } catch {
             return nil
         }
 
         rawValue = pointer.pointee
-        pointer.deallocate()
     }
 
     /// Create an instance from a libgit2 `git_oid`.
@@ -46,6 +46,37 @@ public struct OID: RawRepresentable {
     // MARK: - Properties
 
     public let rawValue: git_oid
+
+    // MARK: - minimumLength
+
+    /// The minimum length required to losslessly represent an OID among the other OIDs in the list.
+    ///
+    /// - Note: This function first converts all of the passed OIDs to strings before calling the actual function.
+    public static func minimumLength(toLosslesslyRepresent oids: some Collection<OID>, initialMinimum: Int = 6) throws -> Int {
+        return try minimumLength(toLosslesslyRepresent: oids.map(\.description), initialMinimum: initialMinimum)
+    }
+
+    /// The minimum length required to losslessly represent an OID among the other OIDs in the list.
+    ///
+    /// - Note: This is more efficient than its sister function because it doesn't need to convert the OIDs to strings.
+    public static func minimumLength(toLosslesslyRepresent oids: some Collection<String>, initialMinimum: Int = 6) throws -> Int {
+        guard let shorten = git_oid_shorten_new(initialMinimum) else {
+            throw GitError(
+                code: .error,
+                detail: .noMemory,
+                description: "Insufficient available memory to allocate git_oid_shorten instance"
+            )
+        }
+        defer { git_oid_shorten_free(shorten) }
+
+        var minimum = initialMinimum
+        for oid in oids {
+            let new = try Int(calling(git_oid_shorten_add(shorten, oid)))
+            minimum = new < minimum ? new : minimum
+        }
+
+        return minimum
+    }
 }
 
 extension OID: CustomStringConvertible {

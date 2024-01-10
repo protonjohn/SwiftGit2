@@ -98,10 +98,13 @@ public struct Branch: ReferenceType, Hashable {
     /// Returns `nil` if the pointer isn't a branch.
     public init?(_ pointer: OpaquePointer) {
         var namePointer: UnsafePointer<Int8>? = nil
-        let success = git_branch_name(&namePointer, pointer)
-        guard success == GIT_OK.rawValue else {
+
+        do {
+            try calling(git_branch_name(&namePointer, pointer))
+        } catch {
             return nil
         }
+
         name = String(validatingUTF8: namePointer!)!
 
         longName = String(validatingUTF8: git_reference_name(pointer))!
@@ -109,10 +112,12 @@ public struct Branch: ReferenceType, Hashable {
         var oid: OID
         if git_reference_type(pointer).rawValue == GIT_REFERENCE_SYMBOLIC.rawValue {
             var resolved: OpaquePointer? = nil
-            let success = git_reference_resolve(&resolved, pointer)
-            guard success == GIT_OK.rawValue else {
+            do {
+                try calling(git_reference_resolve(&resolved, pointer))
+            } catch {
                 return nil
             }
+
             oid = OID(git_reference_target(resolved).pointee)
             git_reference_free(resolved)
         } else {
@@ -178,12 +183,17 @@ public enum TagReference: ReferenceType, Hashable {
         var oid = git_reference_target(pointer).pointee
 
         var pointer: OpaquePointer? = nil
-        let result = git_object_lookup(&pointer, repo, &oid, GIT_OBJECT_TAG)
-        if result == GIT_OK.rawValue {
+        defer {
+            if let pointer {
+                git_object_free(pointer)
+            }
+        }
+        
+        do {
+            try calling(git_object_lookup(&pointer, repo, &oid, GIT_OBJECT_TAG))
             self = .annotated(name, Tag(pointer!))
-        } else {
+        } catch {
             self = .lightweight(name, OID(oid))
         }
-        git_object_free(pointer)
     }
 }

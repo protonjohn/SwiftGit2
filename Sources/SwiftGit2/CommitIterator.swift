@@ -8,23 +8,23 @@ import Clibgit2
 
 public class CommitIterator: IteratorProtocol, Sequence {
     public typealias Iterator = CommitIterator
-    public typealias Element = Result<Commit, NSError>
+    public typealias Element = Result<Commit, GitError>
     let repo: Repository
     private var revisionWalker: OpaquePointer?
 
     private enum Next {
         case over
         case okay
-        case error(NSError)
 
-        init(_ result: Int32, name: String) {
-            switch result {
-            case GIT_ITEROVER.rawValue:
+        init(_ result: Int32) throws {
+            let code = GitError.Code(int32Value: result)
+            switch code {
+            case .endIteration:
                 self = .over
-            case GIT_OK.rawValue:
+            case .ok:
                 self = .okay
             default:
-                self = .error(NSError(gitError: result, pointOfFailure: name))
+                throw GitError.lastError(with: code)
             }
         }
     }
@@ -48,23 +48,37 @@ public class CommitIterator: IteratorProtocol, Sequence {
 
     public func next() -> Element? {
         var oid = git_oid()
-        let revwalkGitResult = git_revwalk_next(&oid, revisionWalker)
-        let nextResult = Next(revwalkGitResult, name: "git_revwalk_next")
-        switch nextResult {
-        case let .error(error):
-            return Result.failure(error)
-        case .over:
-            return nil
-        case .okay:
-            var unsafeCommit: OpaquePointer? = nil
-            let lookupGitResult = git_commit_lookup(&unsafeCommit, repo.pointer, &oid)
-            guard lookupGitResult == GIT_OK.rawValue,
-                let unwrapCommit = unsafeCommit else {
-                    return Result.failure(NSError(gitError: lookupGitResult, pointOfFailure: "git_commit_lookup"))
+        do {
+            switch try Next(git_revwalk_next(&oid, revisionWalker)) {
+            case .over:
+                return nil
+            case .okay:
+                var unsafeCommit: OpaquePointer? = nil
+                try calling(git_commit_lookup(&unsafeCommit, repo.pointer, &oid))
+
+                guard let unsafeCommit else {
+                    throw GitError(
+                        code: .notFound,
+                        detail: .internal,
+                        description: "Commit with oid \(OID(rawValue: oid)) not found"
+                    )
+                }
+
+                defer {
+                    git_commit_free(unsafeCommit)
+                }
+
+                return .success(Commit(unsafeCommit))
             }
-            let result: Element = Result.success(Commit(unwrapCommit))
-            git_commit_free(unsafeCommit)
-            return result
+        } catch let error as GitError {
+            return .failure(error)
+        } catch {
+            assertionFailure("Unexpected error: \(String(describing: error))")
+            return .failure(GitError(
+                code: .invalid,
+                detail: .internal,
+                description: "Unexpected error: \(String(describing: error))")
+            )
         }
     }
 }
