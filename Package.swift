@@ -20,7 +20,7 @@ let package = Package(
     targets: [
         .target(
             name: "SwiftGit2",
-            dependencies: ["Clibgit2", "Clibssh2"]
+            dependencies: ["Clibgit2"]
         ),
         .systemLibrary(
             name: "Clibgit2",
@@ -28,14 +28,6 @@ let package = Package(
             providers: [
                 .brewItem(["libgit2"]),
                 .aptItem(["libgit2-dev"])
-            ]
-        ),
-        .systemLibrary(
-            name: "Clibssh2",
-            pkgConfig: "libssh2",
-            providers: [
-                .brewItem(["libssh2"]),
-                .aptItem(["libssh2-dev"])
             ]
         ),
         .testTarget(

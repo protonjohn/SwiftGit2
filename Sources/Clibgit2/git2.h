@@ -1,5 +1,6 @@
 #pragma once
 #include <git2.h>
+#include <git2/sys/errors.h>
 #include <git2/sys/transport.h>
 
 /* Wrapper structs to allow Swift to pass a context pointer containing a class */

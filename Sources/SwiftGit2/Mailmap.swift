@@ -27,7 +27,7 @@ open class Mailmap {
 
     public init(parsing string: String) throws {
         var pointer: OpaquePointer?
-        try string.withCString {
+        _ = try string.withCString {
             try calling(git_mailmap_from_buffer(&pointer, $0, string.count))
         }
         self.pointer = pointer!
