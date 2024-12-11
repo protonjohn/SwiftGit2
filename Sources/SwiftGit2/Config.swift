@@ -6,7 +6,11 @@
 //
 
 import Foundation
+#if os(Linux)
+import SystemPackage
+#else
 import System
+#endif
 import Clibgit2
 
 public final class Config {

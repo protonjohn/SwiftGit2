@@ -11,16 +11,25 @@ let package = Package(
         .library(
             name: "SwiftGit2",
             targets: ["SwiftGit2"]
-        )
+        ),
     ],
     dependencies: [
+        .package(url: "https://github.com/apple/swift-system", .upToNextMinor(from: "1.4.0"))
         // Dependencies declare other packages that this package depends on.
         // .package(url: /* package url */, from: "1.0.0"),
     ],
     targets: [
         .target(
             name: "SwiftGit2",
-            dependencies: ["Clibgit2"]
+            dependencies: [
+                "Clibgit2",
+                .productItem(
+                    name: "SystemPackage",
+                    package: "swift-system",
+                    moduleAliases: nil,
+                    condition: .when(platforms: [.linux])
+                )
+            ]
         ),
         .systemLibrary(
             name: "Clibgit2",
