@@ -92,8 +92,9 @@ open class Transport {
                     switch result {
                     case .success(let data):
                         countPtr?.pointee = data.count
-                        _ = data.withUnsafeBytes { dataPtr in
-                            memcpy(buffer, dataPtr.baseAddress, data.count)
+                        data.withUnsafeBytes { dataPtr in
+                            guard let baseAddress = dataPtr.baseAddress else { return }
+                            memcpy(buffer, baseAddress, data.count)
                         }
                         return GitError.Code.ok.int32Value
                     case .failure(let error):
