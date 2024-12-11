@@ -83,7 +83,7 @@ open class Transport {
 
         private static func setup(_ stream: UnsafeMutablePointer<git_smart_subtransport_stream_swift>) {
             stream.pointee.parent.read = { stream, buffer, size, countPtr in
-                guard let stream else { return 1 }
+                guard let stream, let buffer else { return 1 }
 
                 return stream.withMemoryRebound(to: git_smart_subtransport_stream_swift.self, offset: \.parent) { stream in
                     let `self` = Unmanaged<Stream>.fromOpaque(stream.pointee.context).takeUnretainedValue()
