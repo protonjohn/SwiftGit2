@@ -129,7 +129,7 @@ public class MergeOptions: GitCallbackOptions<git_merge_options> {
 }
 
 extension Repository {
-    public func mergeBase(_ one: Commit, _ two: Commit) throws -> Commit {
+    public func mergeBase(_ one: PointerTo<Commit>, _ two: PointerTo<Commit>) throws -> PointerTo<Commit> {
         var out = git_oid()
 
         var oneOid = one.oid.rawValue
@@ -141,10 +141,10 @@ extension Repository {
             &twoOid
         ))
 
-        return try commit(.init(rawValue: out))
+        return .init(.init(rawValue: out))
     }
 
-    public func mergeBase(_ commits: [Commit]) throws -> Commit {
+    public func mergeBase(_ commits: [PointerTo<Commit>]) throws -> PointerTo<Commit> {
         try commits
             .map(\.oid.rawValue)
             .withUnsafeBufferPointer {
@@ -158,11 +158,11 @@ extension Repository {
                     )
                 )
 
-                return try commit(.init(rawValue: out))
+                return .init(.init(rawValue: out))
             }
     }
 
-    public func mergeBases(_ one: Commit, _ two: Commit) throws -> [Commit] {
+    public func mergeBases(_ one: PointerTo<Commit>, _ two: PointerTo<Commit>) throws -> [PointerTo<Commit>] {
         var out = git_oidarray()
 
         var oneOid = one.oid.rawValue
@@ -178,12 +178,12 @@ extension Repository {
             git_oidarray_dispose(&out)
         }
 
-        return try UnsafeBufferPointer(start: out.ids, count: out.count).map {
-            try commit(.init(rawValue: $0))
+        return UnsafeBufferPointer(start: out.ids, count: out.count).map {
+            .init(.init(rawValue: $0))
         }
     }
 
-    public func mergeBases(_ commits: [Commit]) throws -> [Commit] {
+    public func mergeBases(_ commits: [PointerTo<Commit>]) throws -> [PointerTo<Commit>] {
         try commits
             .map(\.oid.rawValue)
             .withUnsafeBufferPointer {
@@ -202,13 +202,13 @@ extension Repository {
                     git_oidarray_dispose(&out)
                 }
 
-                return try UnsafeBufferPointer(start: out.ids, count: out.count).map {
-                    try commit(.init(rawValue: $0))
+                return UnsafeBufferPointer(start: out.ids, count: out.count).map {
+                    .init(.init(rawValue: $0))
                 }
             }
     }
 
-    public func octopusMergeBase(_ commits: [Commit]) throws -> Commit {
+    public func octopusMergeBase(_ commits: [PointerTo<Commit>]) throws -> PointerTo<Commit> {
         try commits
             .map(\.oid.rawValue)
             .withUnsafeBufferPointer {
@@ -223,7 +223,7 @@ extension Repository {
                     )
                 )
 
-                return try commit(.init(rawValue: out))
+                return .init(.init(rawValue: out))
             }
     }
 
