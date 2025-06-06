@@ -133,6 +133,11 @@ extension git_clone_options: GitOptionsStruct {
     public static let version = GIT_CLONE_OPTIONS_VERSION
 }
 
+extension git_merge_options: GitOptionsStruct {
+    public static let initializer = git_merge_init_options
+    public static let version = GIT_MERGE_OPTIONS_VERSION
+}
+
 open class GitCallbackOptions<O: GitOptionsStruct> {
     var options: O
 

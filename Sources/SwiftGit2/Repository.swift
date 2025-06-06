@@ -207,6 +207,54 @@ public final class Repository {
         return try withGitObject(oid, type: .commit) { Commit($0) }
     }
 
+    public class AnnotatedCommit {
+        internal let pointer: OpaquePointer!
+
+        init(pointer: OpaquePointer) {
+            self.pointer = pointer
+        }
+
+        deinit {
+            git_annotated_commit_free(pointer)
+        }
+    }
+
+    public func annotatedCommit(_ oid: OID) throws -> AnnotatedCommit {
+        var gitOid = oid.rawValue
+        var out: OpaquePointer?
+        try calling(git_annotated_commit_lookup(&out, self.pointer, &gitOid))
+        return AnnotatedCommit(pointer: out!)
+    }
+
+    public func annotatedCommit(revisionSpec: String) throws -> AnnotatedCommit {
+        try revisionSpec.withCString {
+            var out: OpaquePointer?
+            try calling(git_annotated_commit_from_revspec(&out, self.pointer, $0))
+            return AnnotatedCommit(pointer: out!)
+        }
+    }
+
+    public func annotatedCommit(
+        fetching branchName: String,
+        from remoteUrl: String,
+        commitOid: OID
+    ) throws -> AnnotatedCommit {
+        try branchName.withCString { branchNameCString in
+            try remoteUrl.withCString { remoteUrlCString in
+                var out: OpaquePointer?
+                var gitOid = commitOid.rawValue
+                try calling(git_annotated_commit_from_fetchhead(
+                    &out,
+                    self.pointer,
+                    branchNameCString,
+                    remoteUrlCString,
+                    &gitOid
+                ))
+                return AnnotatedCommit(pointer: out!)
+            }
+        }
+    }
+
     /// Loads the tag with the given OID.
     ///
     /// oid - The OID of the tag to look up.
